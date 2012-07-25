@@ -1,117 +1,100 @@
 package com.demo.servlet;
 
-import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
-import java.io.Writer;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import javax.servlet.AsyncContext;
+import javax.servlet.ServletContextEvent;
+import javax.servlet.ServletContextListener;
+import javax.servlet.annotation.WebListener;
 
 /**
- * 向一个Queue<AsyncContext>中每个Context的Writer进行输出
+ * 
  * @author zzm
  */
-public class AsyncContextQueueWriter extends Writer {
+@WebListener
+public class AsyncContextQueueWriter implements ServletContextListener {
 
-	/**
-	 * AsyncContext队列
-	 */
-	private Queue<AsyncContext> queue;
+    public AsyncContextQueueWriter() {
 
-	/**
-	 * 消息队列
-	 */
-	private static final BlockingQueue<String> MESSAGE_QUEUE = new LinkedBlockingQueue<String>();
+    }
 
-	/**
-	 * 发送消息到异步线程，最终输出到http response流
-	 * @param cbuf
-	 * @param off
-	 * @param len
-	 * @throws IOException
-	 */
-	private void sendMessage(char[] cbuf, int off, int len) throws IOException {
-		try {
-			MESSAGE_QUEUE.put(new String(cbuf, off, len));
-		} catch (Exception ex) {
-			IOException t = new IOException();
-			t.initCause(ex);
-			throw t;
-		}
-	}
+    /**
+     */
+    public static final BlockingQueue<String> MESSAGE_QUEUE       = new LinkedBlockingQueue<String>();
 
-	/**
-	 * 异步线程，当消息队列中被放入数据，将释放take方法的阻塞，将数据发送到http response流上
-	 */
-	private Runnable notifierRunnable = new Runnable() {
-		public void run() {
-			boolean done = false;
-			while (!done) {
-				String message = null;
-				try {
-					message = MESSAGE_QUEUE.take();
-					for (AsyncContext ac : queue) {
-						try {
-							PrintWriter acWriter = ac.getResponse().getWriter();
-							acWriter.println(htmlEscape(message));
-							acWriter.flush();
-						} catch (IOException ex) {
-							System.out.println(ex);
-							queue.remove(ac);
-						}
-					}
-				} catch (InterruptedException iex) {
-					done = true;
-					System.out.println(iex);
-				}
-			}
-		}
-	};
+    /**
+     */
+    public static final Queue<AsyncContext>   ASYNC_CONTEXT_QUEUE = new ConcurrentLinkedQueue<AsyncContext>();
 
-	/**
-	 * @param message
-	 * @return
-	 */
-	private String htmlEscape(String message) {
-		return "<script type='text/javascript'>\nwindow.parent.update(\""
-				+ message.replaceAll("\n", "").replaceAll("\r", "") + "\");</script>\n";
-	}
+    @Override
+    public void contextDestroyed(ServletContextEvent arg0) {
+        // TODO Auto-generated method stub
 
-	/**
-	 * 保持一个默认的writer，输出至控制台，这个writer是同步输出，其他输出到response流的writer是异步输出
-	 */
-	private static final Writer DEFAULT_WRITER = new OutputStreamWriter(System.out);
+    }
 
-	/**
-	 * 构造AsyncContextQueueWriter
-	 * @param queue
-	 */
-	AsyncContextQueueWriter(Queue<AsyncContext> queue) {
-		this.queue = queue;
-		Thread notifierThread = new Thread(notifierRunnable);
-		notifierThread.start();
-	}
+    /**
+     * 
+     * @param cbuf
+     * @param off
+     * @param len
+     * @throws IOException
+     */
 
-	@Override
-	public void write(char[] cbuf, int off, int len) throws IOException {
-		DEFAULT_WRITER.write(cbuf, off, len);
-		sendMessage(cbuf, off, len);
-	}
+    /**
+     */
+    private Runnable notifierRunnable = new Runnable() {
+                                          public void run() {
+                                              boolean done = false;
+                                              String message = null;
+                                              System.out.println("--->"+MESSAGE_QUEUE);
+                                              System.out.println(MESSAGE_QUEUE.size());
+                                              System.out.println("aaa");
+                                              while (!done) { 
+                                                  System.out.println("--->take message...");
+                                                  try {
+                                                      message = MESSAGE_QUEUE.take();
+                                                      System.out.println("--->msg=" + message);
+                                                      for (AsyncContext context : ASYNC_CONTEXT_QUEUE) {
+                                                          if (context == null) {
+                                                              continue;
+                                                          }
+                                                          PrintWriter out = context.getResponse().getWriter();
+                                                          if (out == null) {
+                                                              continue;
+                                                          }
+                                                          String html = htmlEscape(message);
+                                                          System.out.println("--->start to push..." + context
+                                                                                  + "; "
+                                                                                  + html);
+                                                          out.println(htmlEscape(message));
+                                                          out.flush();
+                                                      }
+                                                  } catch (Exception e) {
+                                                      e.printStackTrace();
+                                                      done = true;
+                                                  }
+                                              }
+                                          }
+                                      };
 
-	@Override
-	public void flush() throws IOException {
-		DEFAULT_WRITER.flush();
-	}
+    @Override
+    public void contextInitialized(ServletContextEvent arg0) {
+        System.out.println("contextInitialized...");
+        // TODO Auto-generated method stub
+        new Thread(notifierRunnable).start();
+    }
 
-	@Override
-	public void close() throws IOException {
-		DEFAULT_WRITER.close();
-		for (AsyncContext ac : queue) {
-			ac.getResponse().getWriter().close();
-		}
-	}
+    /**
+     * @param message
+     * @return
+     */
+    private String htmlEscape(String message) {
+        return "<script type='text/javascript'>\nwindow.parent.update(\"" + message.replaceAll("\n", "").replaceAll("\r", "")
+                                + "\");</script>\n";
+    }
 
 }
